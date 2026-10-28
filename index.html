@@ -121,6 +121,13 @@
     .auth-dialog-actions button { padding: 8px 10px; border: 1px solid #17425a; border-radius: 6px; background: #0b2a3b; color: #d7effa; font-size: 10px; }
     .auth-dialog-actions button[type="submit"] { border-color: #2473d4; background: #2473d4; color: #fff; }
     .auth-dialog-actions .auth-cancel { margin-left: auto; }
+    .account-dialog { width: min(560px, calc(100% - 28px)); }
+    .account-list { display: grid; max-height: 55vh; gap: 8px; overflow-y: auto; }
+    .account-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; border: 1px solid #17425a; border-radius: 7px; background: #03111c; }
+    .account-email { min-width: 0; overflow-wrap: anywhere; }
+    .account-role { display: block; margin-top: 3px; color: #8ca9ba; font-size: 10px; }
+    .account-row button { flex: 0 0 auto; padding: 7px 9px; border: 1px solid #17425a; border-radius: 6px; background: #0b2a3b; color: #d7effa; font-size: 10px; }
+    .account-row button:disabled { cursor: not-allowed; opacity: .5; }
     .icon-button {
       display: grid;
       width: 32px;
@@ -876,6 +883,7 @@
           <div class="top-title">PTH <span aria-hidden="true">/</span> Bảng điều khiển sản xuất</div>
           <div class="top-actions">
             <span class="sync-label"><i class="sync-dot"></i><span id="syncStatus">Chỉ lưu trên thiết bị này</span></span>
+            <button class="auth-button" type="button" id="manageUsersButton" hidden>Quản lý tài khoản</button>
             <button class="auth-button" type="button" id="authButton">Đăng nhập</button>
             <button class="icon-button" type="button" id="syncButton" aria-label="Chọn file Excel để tải lên" title="Chọn file Excel để tải lên">⟳</button>
             <input class="file-input" id="fileInput" type="file" accept=".xls,.html,.htm,text/html">
@@ -966,12 +974,12 @@
           <strong>Chưa có lỗi IPQC nào được ghi nhận</strong>
           <span>Chọn “Ghi nhận lỗi” để thêm lỗi, tích xác nhận và ghi phương án cải thiện.</span>
         </div>
-        <p class="ipqc-storage-note">Khi đăng nhập Firebase, các ghi nhận IPQC sẽ được chia sẻ cho những tài khoản được cấp quyền; file Excel hiện không có dữ liệu lỗi để tự phát hiện.</p>
+        <p class="ipqc-storage-note">Các ghi nhận IPQC được chia sẻ qua máy chủ cho những tài khoản đã được quản trị viên duyệt; file Excel không tự phát hiện lỗi.</p>
       </section>
 
       <section class="source-card" id="dataSource">
         <div class="source-head"><strong>Nguồn và phạm vi dữ liệu</strong><span class="pill" id="sourceBadge">Excel · S–AN</span></div>
-        <p id="sourceDetails">Dữ liệu hiện chỉ lưu trên thiết bị này. Cấu hình Firebase để chia sẻ dữ liệu và các ghi nhận IPQC giữa những người dùng được cấp quyền.</p>
+        <p id="sourceDetails">Đăng nhập bằng tài khoản được quản trị viên duyệt để chia sẻ dữ liệu sản xuất và ghi nhận IPQC qua máy chủ.</p>
       </section>
     </main>
   </div>
@@ -979,11 +987,11 @@
   <dialog class="auth-dialog" id="authDialog" aria-labelledby="authTitle">
     <form id="authForm">
       <h2 id="authTitle">Đăng nhập để đồng bộ</h2>
-      <p>Tài khoản cần được quản trị viên cấp quyền trong Firebase trước khi có thể xem hoặc cập nhật dữ liệu chung.</p>
+      <p>Tài khoản mới cần được quản trị viên duyệt trước khi có thể xem hoặc cập nhật dữ liệu chung.</p>
       <label for="authEmail">Email công ty</label>
       <input id="authEmail" name="email" type="email" autocomplete="username" required>
       <label for="authPassword">Mật khẩu</label>
-      <input id="authPassword" name="password" type="password" autocomplete="current-password" minlength="6" required>
+      <input id="authPassword" name="password" type="password" autocomplete="current-password" minlength="10" required>
       <div class="auth-dialog-actions">
         <button type="submit">Đăng nhập</button>
         <button type="button" id="createAccountButton">Tạo tài khoản</button>
@@ -991,10 +999,13 @@
       </div>
     </form>
   </dialog>
+  <dialog class="auth-dialog account-dialog" id="accountDialog" aria-labelledby="accountTitle">
+    <h2 id="accountTitle">Quản lý tài khoản</h2>
+    <p>Chỉ duyệt những người cần truy cập dữ liệu dùng chung.</p>
+    <div class="account-list" id="accountList" aria-live="polite"></div>
+    <div class="auth-dialog-actions"><button class="auth-cancel" type="button" id="closeAccountDialog">Đóng</button></div>
+  </dialog>
 
-  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
   <script>
     const initialData = {
       source: "tải xuống.xls",
@@ -1030,31 +1041,18 @@
 
     const storageKey = "pth-production-dashboard-s-an";
     const ipqcStorageKey = "pth-production-ipqc-issues-v1";
-    const firebaseConfig = {
-      apiKey: "YOUR_API_KEY",
-      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-      databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
-      projectId: "YOUR_PROJECT_ID",
-      appId: "YOUR_APP_ID"
-    };
-    const firebaseConfigured = Object.values(firebaseConfig).every((value) =>
-      value && !value.includes("YOUR_")
-    );
     const numberFormat = new Intl.NumberFormat("vi-VN");
-    const app = { data: loadSavedData(), hour: "all", processIndex: 21 };
-    let ipqcIssues = loadIpqcIssues();
-    let firebaseAuth = null;
-    let sharedRef = null;
-    let productionRef = null;
-    let issuesRef = null;
-    let latestExcelRef = null;
+    const app = { data: initialData, hour: "all", processIndex: 21 };
+    let ipqcIssues = [];
     let syncReady = false;
     let currentUser = null;
+    let latestExcel = null;
+    let eventSource = null;
+    let refreshPending = false;
     const svgNS = "http://www.w3.org/2000/svg";
 
     function loadSavedData() {
       try {
-        if (firebaseConfigured) return initialData;
         const saved = localStorage.getItem(storageKey);
         return saved ? validateData(JSON.parse(saved)) : initialData;
       } catch (error) {
@@ -1080,9 +1078,8 @@
       showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 3200);
     }
 
-    function loadIpqcIssues() {
+    function loadSavedIpqcIssues() {
       try {
-        if (firebaseConfigured) return [];
         const saved = localStorage.getItem(ipqcStorageKey);
         if (!saved) return [];
         const parsed = JSON.parse(saved);
@@ -1102,246 +1099,199 @@
       }
     }
 
-    function saveIpqcIssues(nextIssues) {
-      if (firebaseConfigured && !syncReady) {
-        showToast("Đăng nhập bằng tài khoản đã được cấp quyền để thay đổi dữ liệu IPQC.");
-        return false;
-      }
-      const previousIssues = ipqcIssues;
-      try {
-        localStorage.setItem(ipqcStorageKey, JSON.stringify(nextIssues));
-        ipqcIssues = nextIssues;
-        renderIpqcIssues();
-        if (firebaseConfigured) {
-          syncIpqcChanges(previousIssues, nextIssues).catch((error) => {
-            console.error("Không thể đồng bộ ghi nhận IPQC lên Firebase.", error);
-            setSyncStatus("Lỗi đồng bộ IPQC");
-            showToast("Đã lưu trên thiết bị này nhưng chưa đồng bộ được IPQC lên Firebase.");
-          });
-        }
-        return true;
-      } catch (error) {
-        console.error("Không thể lưu ghi nhận IPQC.", error);
-        showToast("Không lưu được thay đổi IPQC. Kiểm tra quyền lưu trữ của trình duyệt.");
-        return false;
-      }
-    }
-
     function setSyncStatus(message) {
       setText("syncStatus", message);
     }
 
-    function saveProductionCache(data) {
+    async function apiRequest(path, options = {}) {
+      const method = options.method || "GET";
+      const headers = new Headers(options.headers || {});
+      if (options.body !== undefined) headers.set("Content-Type", "application/json");
+      if (method !== "GET") headers.set("X-Requested-With", "XMLHttpRequest");
+      const response = await fetch(path, {
+        ...options,
+        method,
+        headers,
+        credentials: "same-origin"
+      });
+      let payload = {};
       try {
-        localStorage.setItem(storageKey, JSON.stringify(data));
+        payload = await response.json();
       } catch (error) {
-        console.error("Không lưu được dữ liệu đồng bộ vào bộ nhớ trình duyệt.", error);
+        if (response.ok) throw new Error("Máy chủ trả về phản hồi không hợp lệ.");
       }
+      if (!response.ok) {
+        const apiError = new Error(payload.error || `Yêu cầu thất bại (${response.status}).`);
+        apiError.status = response.status;
+        throw apiError;
+      }
+      return payload;
     }
 
     function applySharedProduction(data) {
       app.data = validateData(data);
       app.hour = app.data.hours.some((row) => row[0] === app.hour) ? app.hour : "all";
       app.processIndex = Math.max(0, app.data.processes.indexOf("ELECTRICAL_TEST"));
-      saveProductionCache(app.data);
       renderSelects();
       render();
     }
 
-    function applyLatestExcelSnapshot(snapshot) {
-      if (!snapshot.exists()) throw new Error("Hệ thống chưa có file Excel nào được đồng bộ.");
-      const latestExcel = snapshot.val();
-      if (!latestExcel || typeof latestExcel.content !== "string" ||
-          typeof latestExcel.fileName !== "string" ||
-          typeof latestExcel.uploadedAt !== "number") {
-        throw new Error("Thông tin file Excel mới nhất trên Firebase không hợp lệ.");
+    async function refreshSharedState() {
+      const state = await apiRequest("/api/state");
+      if (!currentUser) return;
+      if (!state.production) {
+        await apiRequest("/api/bootstrap", {
+          method: "POST",
+          body: JSON.stringify({ production: loadSavedData(), ipqcIssues: loadSavedIpqcIssues() })
+        });
+        return refreshSharedState();
       }
-      const latestData = parseExcelHtml(latestExcel.content, latestExcel.fileName);
-      applySharedProduction(latestData);
-      return {
-        fileName: latestExcel.fileName,
-        uploadedAt: new Date(latestExcel.uploadedAt).toLocaleString("vi-VN")
-      };
-    }
-
-    function applySharedIssues(value) {
-      if (value !== null && (typeof value !== "object" || Array.isArray(value))) {
-        throw new Error("Danh sách IPQC trên Firebase không hợp lệ.");
-      }
-      const issues = value ? Object.values(value) : [];
-      const validIssues = issues.filter((issue) =>
-        issue && typeof issue.id === "string" &&
-        typeof issue.title === "string" &&
-        typeof issue.process === "string" &&
-        typeof issue.detectedAt === "string" &&
-        typeof issue.improvement === "string" &&
-        typeof issue.confirmed === "boolean"
-      );
-      if (validIssues.length !== issues.length) {
-        throw new Error("Có ghi nhận IPQC không đúng định dạng trên Firebase.");
-      }
-      ipqcIssues = validIssues;
-      try {
-        localStorage.setItem(ipqcStorageKey, JSON.stringify(ipqcIssues));
-      } catch (error) {
-        console.error("Không lưu được ghi nhận IPQC đồng bộ vào bộ nhớ trình duyệt.", error);
-      }
+      applySharedProduction(state.production);
+      ipqcIssues = state.ipqcIssues;
+      latestExcel = state.latestExcel;
+      syncReady = true;
       renderIpqcIssues();
-    }
-
-    async function syncIpqcChanges(previousIssues, nextIssues) {
-      if (!issuesRef || !syncReady) throw new Error("Firebase chưa sẵn sàng để đồng bộ IPQC.");
-      const previousById = new Map(previousIssues.map((issue) => [issue.id, issue]));
-      const nextById = new Map(nextIssues.map((issue) => [issue.id, issue]));
-      const writes = [];
-      previousById.forEach((issue, id) => {
-        if (!nextById.has(id)) writes.push(issuesRef.child(id).remove());
-      });
-      nextById.forEach((issue, id) => {
-        const previous = previousById.get(id);
-        if (JSON.stringify(previous) === JSON.stringify(issue)) return;
-        if (!previous) {
-          writes.push(issuesRef.child(id).set(issue));
-          return;
-        }
-        const changedFields = Object.fromEntries(Object.entries(issue).filter(([key, value]) =>
-          previous[key] !== value
-        ));
-        writes.push(issuesRef.child(id).update(changedFields));
-      });
-      await Promise.all(writes);
+      renderMetrics(getTotals());
+      setSyncStatus(`Đang đồng bộ · ${currentUser.email}`);
+      return state.revision;
     }
 
     async function connectToSharedData(user) {
-      setSyncStatus("Đang kết nối dữ liệu chung…");
-      sharedRef = firebase.database().ref("shared");
-      productionRef = sharedRef.child("production");
-      issuesRef = sharedRef.child("ipqcIssues");
-      latestExcelRef = firebase.database().ref("data/latestExcel");
-      const initialIssues = Object.fromEntries(ipqcIssues.map((issue) => [issue.id, issue]));
-      await sharedRef.transaction((current) => {
-        if (current !== null) return;
-        return { production: initialData, ipqcIssues: initialIssues };
-      }, undefined, false);
-      if (!currentUser || currentUser.uid !== user.uid) return;
-
-      const productionSnapshot = await productionRef.once("value");
-      if (!currentUser || currentUser.uid !== user.uid) return;
-      if (!productionSnapshot.exists()) throw new Error("Firebase chưa có dữ liệu sản xuất.");
-      applySharedProduction(productionSnapshot.val());
-      const issuesSnapshot = await issuesRef.once("value");
-      if (!currentUser || currentUser.uid !== user.uid) return;
-      applySharedIssues(issuesSnapshot.val());
-
-      productionRef.on("value", (snapshot) => {
-        if (!currentUser || currentUser.uid !== user.uid) return;
-        if (!snapshot.exists()) return;
-        try {
-          applySharedProduction(snapshot.val());
-          setSyncStatus(`Đang đồng bộ · ${user.email}`);
-        } catch (error) {
-          console.error("Dữ liệu sản xuất trên Firebase không hợp lệ.", error);
-          setSyncStatus("Dữ liệu Firebase không hợp lệ");
-        }
-      }, (error) => {
-        if (!currentUser || currentUser.uid !== user.uid) return;
-        console.error("Không thể theo dõi dữ liệu sản xuất trên Firebase.", error);
-        setSyncStatus("Lỗi kết nối dữ liệu chung");
+      currentUser = user;
+      syncReady = false;
+      document.getElementById("authButton").textContent = "Đăng xuất";
+      document.getElementById("manageUsersButton").hidden = !user.isAdmin;
+      setSyncStatus("Đang kết nối cơ sở dữ liệu chung…");
+      const revision = await refreshSharedState();
+      if (eventSource) eventSource.close();
+      eventSource = new EventSource(`/api/events?after=${revision}`);
+      eventSource.addEventListener("change", () => {
+        if (refreshPending) return;
+        refreshPending = true;
+        window.setTimeout(async () => {
+          refreshPending = false;
+          if (!currentUser) return;
+          try {
+            await refreshSharedState();
+          } catch (error) {
+            console.error("Không thể tải dữ liệu cập nhật từ máy chủ.", error);
+            setSyncStatus("Lỗi cập nhật dữ liệu");
+          }
+        }, 120);
       });
-      issuesRef.on("value", (snapshot) => {
-        if (!currentUser || currentUser.uid !== user.uid) return;
-        try {
-          applySharedIssues(snapshot.val());
-        } catch (error) {
-          console.error("Ghi nhận IPQC trên Firebase không hợp lệ.", error);
-          setSyncStatus("Dữ liệu IPQC không hợp lệ");
-        }
-      }, (error) => {
-        if (!currentUser || currentUser.uid !== user.uid) return;
-        console.error("Không thể theo dõi ghi nhận IPQC trên Firebase.", error);
-        setSyncStatus("Lỗi đồng bộ IPQC");
+      eventSource.addEventListener("access-revoked", () => {
+        eventSource.close();
+        eventSource = null;
+        showToast("Quyền truy cập đã bị quản trị viên thu hồi.");
+        clearSession();
       });
-      latestExcelRef.on("value", (snapshot) => {
-        if (!currentUser || currentUser.uid !== user.uid) return;
-        if (!snapshot.exists()) {
-          setSyncStatus("Chưa có file Excel chung");
-          return;
-        }
-        try {
-          const latest = applyLatestExcelSnapshot(snapshot);
-          setSyncStatus(`File chung mới nhất · ${latest.uploadedAt}`);
-        } catch (error) {
-          console.error("Không thể đọc file Excel mới nhất trên Firebase.", error);
-          setSyncStatus(snapshot.exists() ? "Không đọc được file Excel mới nhất" : "Chưa có file Excel chung");
-        }
-      }, (error) => {
-        if (!currentUser || currentUser.uid !== user.uid) return;
-        console.error("Không thể theo dõi file Excel mới nhất trên Firebase.", error);
-        setSyncStatus("Lỗi tải file Excel chung");
-      });
-      syncReady = true;
-      setSyncStatus(`Đang đồng bộ · ${user.email}`);
+      eventSource.onerror = () => {
+        if (currentUser) setSyncStatus("Đang kết nối lại dữ liệu realtime…");
+      };
     }
 
-    function startSharedSync() {
-      const authButton = document.getElementById("authButton");
-      if (!firebaseConfigured) {
-        setSyncStatus("Chỉ lưu trên thiết bị này");
-        authButton.textContent = "Cấu hình Firebase";
+    function clearSession() {
+      if (eventSource) eventSource.close();
+      eventSource = null;
+      currentUser = null;
+      syncReady = false;
+      latestExcel = null;
+      ipqcIssues = [];
+      app.data = initialData;
+      app.hour = "all";
+      app.processIndex = 21;
+      document.getElementById("authButton").textContent = "Đăng nhập";
+      document.getElementById("manageUsersButton").hidden = true;
+      setSyncStatus("Đăng nhập để xem dữ liệu chung");
+      renderSelects();
+      render();
+    }
+
+    async function startSharedSync() {
+      try {
+        const result = await apiRequest("/api/me");
+        if (!result.user || !result.user.approved) {
+          clearSession();
+          return;
+        }
+        await connectToSharedData(result.user);
+      } catch (error) {
+        console.error("Không thể kết nối máy chủ SQLite.", error);
+        setSyncStatus("Không kết nối được máy chủ");
+        showToast(error.message || "Không kết nối được máy chủ. Hãy tải lại trang hoặc kiểm tra mạng.");
+      }
+    }
+
+    async function saveIpqcIssue(method, issue) {
+      if (!syncReady) {
+        showToast("Đăng nhập bằng tài khoản được duyệt trước khi thay đổi dữ liệu IPQC.");
+        return false;
+      }
+      const path = method === "POST" ? "/api/ipqc" : `/api/ipqc/${encodeURIComponent(issue.id)}`;
+      const payload = { ...issue };
+      try {
+        await apiRequest(path, { method, body: JSON.stringify(payload) });
+        await refreshSharedState();
+        return true;
+      } catch (error) {
+        console.error("Không thể lưu ghi nhận IPQC.", error);
+        showToast(error.message || "Không thể lưu ghi nhận IPQC trên máy chủ.");
+        return false;
+      }
+    }
+
+    async function loadAdminUsers() {
+      const { users } = await apiRequest("/api/admin/users");
+      const list = document.getElementById("accountList");
+      list.replaceChildren();
+      users.forEach((user) => {
+        const row = document.createElement("div");
+        row.className = "account-row";
+        const details = document.createElement("div");
+        details.className = "account-email";
+        const email = document.createElement("strong");
+        email.textContent = user.email;
+        const role = document.createElement("span");
+        role.className = "account-role";
+        role.textContent = `${user.isAdmin ? "Quản trị viên · " : ""}${user.approved ? "Đã duyệt" : "Chờ duyệt"}`;
+        details.append(email, role);
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.userId = String(user.id);
+        button.dataset.approved = String(!user.approved);
+        button.textContent = user.approved ? "Thu hồi quyền" : "Duyệt";
+        button.disabled = user.isAdmin && user.approved && users.filter((item) => item.isAdmin && item.approved).length === 1;
+        row.append(details, button);
+        list.append(row);
+      });
+      if (!users.length) {
+        const empty = document.createElement("p");
+        empty.textContent = "Chưa có tài khoản.";
+        list.append(empty);
+      }
+    }
+
+    async function refreshLatestExcel() {
+      if (!syncReady) {
+        showToast("Đăng nhập bằng tài khoản được duyệt để lấy file Excel mới nhất.");
         return;
       }
+      const button = document.getElementById("refreshDataButton");
+      button.disabled = true;
+      setSyncStatus("Đang lấy file Excel mới nhất…");
       try {
-        if (!window.firebase || !firebase.auth || !firebase.database) {
-          throw new Error("Không tải được Firebase SDK. Kiểm tra kết nối Internet rồi tải lại trang.");
-        }
-        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-        firebaseAuth = firebase.auth();
-        firebaseAuth.onAuthStateChanged(async (user) => {
-          currentUser = user;
-          syncReady = false;
-          if (!user) {
-            if (productionRef) productionRef.off();
-            if (issuesRef) issuesRef.off();
-            if (latestExcelRef) latestExcelRef.off();
-            productionRef = null;
-            issuesRef = null;
-            latestExcelRef = null;
-            sharedRef = null;
-            app.data = initialData;
-            app.hour = "all";
-            app.processIndex = 21;
-            ipqcIssues = [];
-            renderSelects();
-            render();
-            authButton.textContent = "Đăng nhập";
-            setSyncStatus("Đăng nhập để đồng bộ");
-            return;
-          }
-          authButton.textContent = "Đăng xuất";
-          if (productionRef) productionRef.off();
-          if (issuesRef) issuesRef.off();
-          if (latestExcelRef) latestExcelRef.off();
-          if (!user.emailVerified) {
-            setSyncStatus("Hãy xác thực email để đồng bộ");
-            return;
-          }
-          try {
-            await connectToSharedData(user);
-          } catch (error) {
-            if (!currentUser || currentUser.uid !== user.uid) return;
-            console.error("Không thể kết nối Firebase.", error);
-            const permissionDenied = error.code === "PERMISSION_DENIED" ||
-              (error.message && error.message.toLowerCase().includes("permission"));
-            setSyncStatus(permissionDenied ? "Tài khoản chưa được cấp quyền" : "Lỗi kết nối Firebase");
-            showToast(permissionDenied
-              ? "Tài khoản chưa được quản trị viên cấp quyền trong Firebase."
-              : "Không thể kết nối Firebase. Kiểm tra cấu hình và kết nối mạng.");
-          }
-        });
+        const latest = await apiRequest("/api/latest-excel");
+        const parsed = parseExcelHtml(latest.content, latest.fileName);
+        applySharedProduction(parsed);
+        latestExcel = latest;
+        setSyncStatus(`File chung mới nhất · ${new Date(latest.uploadedAt).toLocaleString("vi-VN")}`);
+        showToast(`Đã cập nhật dữ liệu từ ${latest.fileName}.`);
       } catch (error) {
-        console.error("Không thể khởi tạo Firebase.", error);
-        setSyncStatus("Firebase chưa sẵn sàng");
-        showToast(error.message || "Không thể khởi tạo Firebase.");
+        console.error("Không thể cập nhật từ file Excel mới nhất.", error);
+        setSyncStatus("Không cập nhật được file chung");
+        showToast(error.message || "Không thể lấy file Excel mới nhất.");
+      } finally {
+        button.disabled = false;
       }
     }
 
@@ -1526,12 +1476,12 @@
       setText("hourCount", String(filteredHours().length));
       setText("hourNote", app.hour === "all" ? "Khung giờ có trong file Excel" : `Đang lọc ${app.hour}`);
       setText("sourceBadge", `Excel · ${app.data.processes.length} công đoạn`);
-      const sharingNote = firebaseConfigured
-        ? (syncReady ? " Dữ liệu và ghi nhận IPQC đang được chia sẻ qua Firebase; file Excel mới nhất nằm tại data/latestExcel." : " Đăng nhập bằng tài khoản được cấp quyền để đồng bộ dữ liệu chung.")
-        : " Dữ liệu chỉ lưu trong trình duyệt này; cần cấu hình Firebase để chia sẻ với mọi người.";
-      const fileNote = firebaseConfigured && syncReady
-        ? " File Excel .xls dạng HTML được lưu làm bản mới nhất trong Firebase Realtime Database."
-        : " File Excel được xử lý trong trình duyệt.";
+      const sharingNote = syncReady
+        ? " Dữ liệu và IPQC đang được chia sẻ qua SQLite trên máy chủ, cập nhật trực tiếp cho người dùng đã được duyệt."
+        : " Đăng nhập bằng tài khoản được quản trị viên duyệt để xem và cập nhật dữ liệu chung.";
+      const fileNote = latestExcel
+        ? ` File Excel mới nhất: ${latestExcel.fileName} · ${new Date(latestExcel.uploadedAt).toLocaleString("vi-VN")}.`
+        : " Chưa có file Excel nào được tải lên máy chủ.";
       setText("sourceDetails", `Nguồn: ${app.data.source}. Đọc các cột S–AN; ${app.data.hours.length} khung giờ và dòng Total.${fileNote}${sharingNote}`);
       const lastHour = lastOutput ? `${lastOutput.hour} · ${formatNumber(lastOutput.value)} pcs` : "Chưa có số liệu";
       setText("chartSubtitle", `ELECTRICAL_TEST · sản lượng giờ gần nhất: ${lastHour}`);
@@ -1740,86 +1690,37 @@
 
     async function importFile(file) {
       if (!file) return;
-      if (firebaseConfigured && !syncReady) {
-        showToast("Đăng nhập bằng tài khoản đã được cấp quyền trước khi đồng bộ file.");
+      if (!syncReady) {
+        showToast("Đăng nhập bằng tài khoản được duyệt trước khi đồng bộ file.");
         return;
       }
       if (file.size > 5 * 1024 * 1024) {
-        throw new Error("File vượt quá giới hạn 5 MB để đồng bộ lên Firebase.");
+        throw new Error("File vượt quá giới hạn 5 MB để đồng bộ lên máy chủ.");
       }
       const text = await file.text();
       const imported = parseExcelHtml(text, file.name);
-      if (firebaseConfigured) {
-        try {
-          await firebase.database().ref().update({
-            "shared/production": imported,
-            "data/latestExcel": {
-              fileName: file.name,
-              content: text,
-              uploadedBy: { uid: currentUser.uid, email: currentUser.email || "" },
-              uploadedAt: firebase.database.ServerValue.TIMESTAMP
-            }
-          });
-          applySharedProduction(imported);
-          setSyncStatus("Đã cập nhật file Excel chung mới nhất");
-          showToast(`Đã cập nhật ${file.name} làm file mới nhất; mọi người sẽ thấy dữ liệu này.`);
-        } catch (error) {
-          console.error("Không thể đồng bộ dữ liệu sản xuất lên Firebase.", error);
-          setSyncStatus("Lỗi đồng bộ dữ liệu");
-          showToast("Không đồng bộ được file lên hệ thống; dữ liệu đang hiển thị không bị thay đổi.");
-        }
-      } else {
-        applySharedProduction(imported);
-        setSyncStatus("Chỉ lưu trên thiết bị này");
-        showToast(`Đã nạp ${imported.hours.length} khung giờ. Dữ liệu chỉ lưu trên thiết bị này; cần cấu hình Firebase để chia sẻ.`);
-      }
-    }
-
-    async function refreshLatestExcel() {
-      if (!firebaseConfigured) {
-        showToast("Cần cấu hình Firebase để lấy file Excel mới nhất của toàn hệ thống.");
-        return;
-      }
-      if (!syncReady || !latestExcelRef || !currentUser) {
-        showToast("Đăng nhập bằng tài khoản đã được cấp quyền để lấy file Excel chung.");
-        return;
-      }
-
-      const button = document.getElementById("refreshDataButton");
-      const userId = currentUser.uid;
-      button.disabled = true;
-      setSyncStatus("Đang lấy file Excel mới nhất…");
       try {
-        const snapshot = await latestExcelRef.once("value");
-        if (!currentUser || currentUser.uid !== userId) return;
-        const latest = applyLatestExcelSnapshot(snapshot);
-        setSyncStatus(`File chung mới nhất · ${latest.uploadedAt}`);
-        showToast(`Đã cập nhật dữ liệu từ ${latest.fileName} (${latest.uploadedAt}).`);
+        await apiRequest("/api/excel", {
+          method: "POST",
+          body: JSON.stringify({ fileName: file.name, content: text, production: imported })
+        });
+        await refreshSharedState();
+        setSyncStatus("Đã cập nhật dữ liệu chung mới nhất");
+        showToast(`Đã cập nhật ${file.name}; mọi người sẽ thấy dữ liệu mới.`);
       } catch (error) {
-        if (!currentUser || currentUser.uid !== userId) return;
-        console.error("Không thể cập nhật từ file Excel mới nhất.", error);
-        setSyncStatus("Không cập nhật được file chung");
-        showToast(error.message || "Không thể lấy file Excel mới nhất. Kiểm tra kết nối và quyền truy cập.");
-      } finally {
-        button.disabled = false;
+        console.error("Không thể đồng bộ dữ liệu sản xuất lên máy chủ.", error);
+        setSyncStatus("Lỗi đồng bộ dữ liệu");
+        showToast(error.message || "Không đồng bộ được file lên máy chủ.");
       }
     }
-
     document.getElementById("authButton").addEventListener("click", async () => {
-      if (!firebaseConfigured) {
-        showToast("Cần điền cấu hình Firebase trong index.html và triển khai Firebase Realtime Database.");
-        return;
-      }
-      if (!firebaseAuth) {
-        showToast("Firebase chưa sẵn sàng. Kiểm tra kết nối Internet rồi tải lại trang.");
-        return;
-      }
       if (currentUser) {
         try {
-          await firebaseAuth.signOut();
+          await apiRequest("/api/logout", { method: "POST", body: "{}" });
+          clearSession();
         } catch (error) {
-          console.error("Không thể đăng xuất Firebase.", error);
-          showToast("Không thể đăng xuất. Vui lòng thử lại.");
+          console.error("Không thể đăng xuất khỏi máy chủ.", error);
+          showToast(error.message || "Không thể đăng xuất. Vui lòng thử lại.");
         }
         return;
       }
@@ -1831,48 +1732,67 @@
     });
     document.getElementById("authForm").addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (!firebaseAuth) return;
       const email = document.getElementById("authEmail").value.trim();
       const password = document.getElementById("authPassword").value;
       try {
-        const credential = await firebaseAuth.signInWithEmailAndPassword(email, password);
-        if (!credential.user.emailVerified) {
-          await credential.user.sendEmailVerification();
-          await firebaseAuth.signOut();
-          showToast("Email chưa được xác thực. Đã gửi lại liên kết xác thực; hãy kiểm tra hộp thư.");
-          return;
-        }
+        await apiRequest("/api/login", { method: "POST", body: JSON.stringify({ email, password }) });
+        const { user } = await apiRequest("/api/me");
+        if (!user || !user.approved) throw new Error("Tài khoản đang chờ quản trị viên cấp quyền.");
+        await connectToSharedData(user);
         document.getElementById("authDialog").close();
         document.getElementById("authForm").reset();
       } catch (error) {
-        console.error("Đăng nhập Firebase thất bại.", error);
-        showToast(error.code === "auth/invalid-credential"
-          ? "Email hoặc mật khẩu không đúng."
-          : error.code === "auth/too-many-requests"
-            ? "Đăng nhập tạm thời bị giới hạn. Vui lòng thử lại sau."
-            : "Không thể đăng nhập. Kiểm tra thông tin và cấu hình Firebase.");
+        console.error("Đăng nhập thất bại.", error);
+        showToast(error.message || "Không thể đăng nhập. Hãy kiểm tra email và mật khẩu.");
       }
     });
     document.getElementById("createAccountButton").addEventListener("click", async () => {
-      if (!firebaseAuth) return;
       const email = document.getElementById("authEmail").value.trim();
       const password = document.getElementById("authPassword").value;
-      if (!email || password.length < 6) {
-        showToast("Nhập email hợp lệ và mật khẩu có ít nhất 6 ký tự.");
+      if (!email || password.length < 10) {
+        showToast("Nhập email hợp lệ và mật khẩu có ít nhất 10 ký tự.");
         return;
       }
       try {
-        const credential = await firebaseAuth.createUserWithEmailAndPassword(email, password);
-        await credential.user.sendEmailVerification();
-        await firebaseAuth.signOut();
+        const result = await apiRequest("/api/register", {
+          method: "POST",
+          body: JSON.stringify({ email, password })
+        });
         document.getElementById("authDialog").close();
         document.getElementById("authForm").reset();
-        showToast("Đã tạo tài khoản. Xác thực email, sau đó nhờ quản trị viên cấp quyền Firebase.");
+        showToast(result.message);
       } catch (error) {
-        console.error("Không thể tạo tài khoản Firebase.", error);
-        showToast(error.code === "auth/email-already-in-use"
-          ? "Email này đã có tài khoản. Hãy đăng nhập."
-          : "Không thể tạo tài khoản. Kiểm tra email, mật khẩu và cấu hình Firebase.");
+        console.error("Không thể tạo tài khoản.", error);
+        showToast(error.message || "Không thể tạo tài khoản.");
+      }
+    });
+    document.getElementById("manageUsersButton").addEventListener("click", async () => {
+      try {
+        await loadAdminUsers();
+        document.getElementById("accountDialog").showModal();
+      } catch (error) {
+        console.error("Không thể tải danh sách tài khoản.", error);
+        showToast(error.message || "Không thể tải danh sách tài khoản.");
+      }
+    });
+    document.getElementById("closeAccountDialog").addEventListener("click", () => {
+      document.getElementById("accountDialog").close();
+    });
+    document.getElementById("accountList").addEventListener("click", async (event) => {
+      const button = event.target.closest("button[data-user-id]");
+      if (!button) return;
+      button.disabled = true;
+      try {
+        await apiRequest(`/api/admin/users/${button.dataset.userId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ approved: button.dataset.approved === "true" })
+        });
+        await loadAdminUsers();
+        showToast(button.dataset.approved === "true" ? "Đã duyệt tài khoản." : "Đã thu hồi quyền truy cập.");
+      } catch (error) {
+        console.error("Không thể thay đổi quyền truy cập.", error);
+        showToast(error.message || "Không thể thay đổi quyền truy cập.");
+        button.disabled = false;
       }
     });
     document.getElementById("refreshDataButton").addEventListener("click", refreshLatestExcel);
@@ -1900,6 +1820,10 @@
       render();
     });
     document.getElementById("openIpqcForm").addEventListener("click", () => {
+      if (!syncReady) {
+        showToast("Đăng nhập bằng tài khoản được duyệt để ghi nhận IPQC chung.");
+        return;
+      }
       const form = document.getElementById("ipqcForm");
       form.hidden = false;
       const now = new Date();
@@ -1912,7 +1836,7 @@
       form.reset();
       form.hidden = true;
     });
-    document.getElementById("ipqcForm").addEventListener("submit", (event) => {
+    document.getElementById("ipqcForm").addEventListener("submit", async (event) => {
       event.preventDefault();
       const form = event.currentTarget;
       const formData = new FormData(form);
@@ -1930,37 +1854,40 @@
         improvement: String(formData.get("improvement") || "").trim(),
         confirmed: false
       };
-      if (!saveIpqcIssues([issue, ...ipqcIssues])) return;
+      if (!await saveIpqcIssue("POST", issue)) return;
       form.reset();
       form.hidden = true;
       showToast("Đã lưu ghi nhận lỗi IPQC.");
     });
-    document.getElementById("ipqcList").addEventListener("change", (event) => {
+    document.getElementById("ipqcList").addEventListener("change", async (event) => {
       const target = event.target;
+      const issue = ipqcIssues.find((item) => item.id === target.dataset.issueId);
+      if (!issue) return;
       if (target.matches(".ipqc-confirm")) {
-        const updated = ipqcIssues.map((issue) => issue.id === target.dataset.issueId
-          ? { ...issue, confirmed: target.checked }
-          : issue);
-        if (saveIpqcIssues(updated)) {
-          const issue = ipqcIssues.find((item) => item.id === target.dataset.issueId);
-          showToast(issue && issue.confirmed ? "Đã xác nhận lỗi IPQC." : "Đã bỏ xác nhận lỗi IPQC.");
+        if (await saveIpqcIssue("PATCH", { ...issue, confirmed: target.checked })) {
+          showToast(target.checked ? "Đã xác nhận lỗi IPQC." : "Đã bỏ xác nhận lỗi IPQC.");
         }
         return;
       }
       if (target.matches(".ipqc-note")) {
-        const updated = ipqcIssues.map((issue) => issue.id === target.dataset.issueId
-          ? { ...issue, improvement: target.value.trim() }
-          : issue);
-        if (saveIpqcIssues(updated)) showToast("Đã lưu phương án cải thiện.");
+        if (await saveIpqcIssue("PATCH", { ...issue, improvement: target.value.trim() })) {
+          showToast("Đã lưu phương án cải thiện.");
+        }
       }
     });
-    document.getElementById("ipqcList").addEventListener("click", (event) => {
+    document.getElementById("ipqcList").addEventListener("click", async (event) => {
       const button = event.target.closest(".ipqc-item-remove");
       if (!button) return;
       const issue = ipqcIssues.find((item) => item.id === button.dataset.issueId);
       if (!issue || !window.confirm(`Xóa ghi nhận lỗi “${issue.title}” và phương án cải thiện?`)) return;
-      const updated = ipqcIssues.filter((item) => item.id !== issue.id);
-      if (saveIpqcIssues(updated)) showToast("Đã xóa ghi nhận lỗi IPQC.");
+      try {
+        await apiRequest(`/api/ipqc/${encodeURIComponent(issue.id)}`, { method: "DELETE" });
+        await refreshSharedState();
+        showToast("Đã xóa ghi nhận lỗi IPQC.");
+      } catch (error) {
+        console.error("Không thể xóa ghi nhận IPQC.", error);
+        showToast(error.message || "Không thể xóa ghi nhận IPQC.");
+      }
     });
     document.querySelectorAll(".nav button[data-action]").forEach((button) => {
       button.addEventListener("click", () => {

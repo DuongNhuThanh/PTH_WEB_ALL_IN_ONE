@@ -1,0 +1,13 @@
+{
+  "name": "pth-control-tower",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PTH dashboard with shared SQLite storage and live updates",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test server.test.js"
+  }
+}
