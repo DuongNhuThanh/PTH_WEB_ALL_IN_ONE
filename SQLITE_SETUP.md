@@ -14,7 +14,7 @@ node server.js
 
 Lệnh tạo admin yêu cầu nhập mật khẩu hai lần trong terminal và không hiển thị mật khẩu. Máy chủ mặc định chạy tại `http://127.0.0.1:8000`. Dữ liệu mặc định nằm trong `data/pth-dashboard.sqlite3`; có thể đổi file bằng biến môi trường `PTH_DB_PATH`.
 
-Nếu triển khai mà không có terminal tương tác, có thể khởi tạo admin lần đầu qua `POST /api/setup-admin` bằng cách cấu hình `PTH_ADMIN_SETUP_TOKEN` có ít nhất 32 ký tự ngẫu nhiên trong môi trường server. Gửi JSON gồm `setupToken`, `email` và mật khẩu riêng do bạn chọn. API chỉ hoạt động khi database chưa có admin, tạo tài khoản được duyệt với quyền admin, rồi khóa vĩnh viễn sau lần tạo thành công. Gỡ `PTH_ADMIN_SETUP_TOKEN` khỏi cấu hình môi trường ngay sau đó. Không dùng chung mật khẩu mặc định trong mã nguồn và không gửi secret qua URL hoặc log.
+Nếu triển khai trên Render hoặc môi trường không có terminal tương tác, đặt `PTH_ADMIN_EMAIL` và `PTH_ADMIN_PASSWORD` trong Environment rồi deploy. Khi server khởi động, nếu database chưa có admin, nó tự tạo tài khoản admin đã duyệt một lần. Đăng nhập bằng thông tin đó rồi xóa cả hai biến khỏi Environment và deploy lại. Những tài khoản đăng ký về sau vẫn là user chờ duyệt; các biến môi trường không thể tạo admin bổ sung nếu database đã có admin.
 
 Để các máy tính khác trong mạng truy cập, chạy máy chủ trên một máy chủ nội bộ hoặc VPS:
 

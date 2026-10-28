@@ -7,6 +7,7 @@ const path = require("node:path");
 const { after, before, test } = require("node:test");
 const {
   createApplication,
+  createAdminFromEnvironment,
   createFirstAdmin,
   openDatabase,
   passwordDigest,
@@ -314,58 +315,61 @@ test("first-admin creation requires matching passwords and allows only one admin
   firstAdminDb.close();
 });
 
-test("public first-admin setup requires a secret and locks after the first admin", async () => {
-  const dbPath = path.join(tempDir, "public-setup.sqlite3");
-  const setupApplication = createApplication({ dbPath });
-  const setupServer = setupApplication.server;
-  const previousToken = process.env.PTH_ADMIN_SETUP_TOKEN;
-  process.env.PTH_ADMIN_SETUP_TOKEN = "test-only-random-secret-token-123456";
+test("Render environment bootstraps only the first admin", async () => {
+  const dbPath = path.join(tempDir, "environment-admin.sqlite3");
+  const application = createApplication({ dbPath });
+  const { db: setupDb } = application;
+  const setupServer = application.server;
   await new Promise((resolve) => setupServer.listen(0, "127.0.0.1", resolve));
-  const setupUrl = `http://127.0.0.1:${setupServer.address().port}`;
   try {
-    const invalid = await fetch(`${setupUrl}/api/setup-admin`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        setupToken: "wrong",
-        email: "setup-admin@example.com",
-        password: ADMIN_PASSWORD,
-      }),
-    });
-    assert.equal(invalid.status, 403);
+    const obsoleteSetup = await fetch(
+      `http://127.0.0.1:${setupServer.address().port}/api/setup-admin`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      },
+    );
+    assert.equal(obsoleteSetup.status, 404);
 
-    const created = await fetch(`${setupUrl}/api/setup-admin`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        setupToken: process.env.PTH_ADMIN_SETUP_TOKEN,
-        email: "setup-admin@example.com",
-        password: ADMIN_PASSWORD,
+    assert.equal(
+      await createAdminFromEnvironment(setupDb, {}),
+      false,
+    );
+    await assert.rejects(
+      createAdminFromEnvironment(setupDb, {
+        PTH_ADMIN_EMAIL: "setup-admin@example.com",
       }),
-    });
-    assert.equal(created.status, 201);
+      /cả PTH_ADMIN_EMAIL và PTH_ADMIN_PASSWORD/,
+    );
+    assert.equal(
+      await createAdminFromEnvironment(setupDb, {
+        PTH_ADMIN_EMAIL: "setup-admin@example.com",
+        PTH_ADMIN_PASSWORD: ADMIN_PASSWORD,
+      }),
+      true,
+    );
+    assert.equal(
+      await createAdminFromEnvironment(setupDb, {
+        PTH_ADMIN_EMAIL: "another-admin@example.com",
+        PTH_ADMIN_PASSWORD: ADMIN_PASSWORD,
+      }),
+      false,
+    );
 
-    const locked = await fetch(`${setupUrl}/api/setup-admin`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        setupToken: process.env.PTH_ADMIN_SETUP_TOKEN,
-        email: "another-admin@example.com",
-        password: ADMIN_PASSWORD,
-      }),
-    });
-    assert.equal(locked.status, 409);
-
-    const userRegistration = await fetch(`${setupUrl}/api/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "regular-user@example.com",
-        password: USER_PASSWORD,
-      }),
-    });
-    assert.equal(userRegistration.status, 201);
-    const accounts = setupApplication.db
+    const registration = await fetch(
+      `http://127.0.0.1:${setupServer.address().port}/api/register`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: "regular-user@example.com",
+          password: USER_PASSWORD,
+        }),
+      },
+    );
+    assert.equal(registration.status, 201);
+    const accounts = setupDb
       .prepare("SELECT email, is_admin, approved FROM users ORDER BY id")
       .all()
       .map((row) => ({ ...row }));
@@ -378,11 +382,6 @@ test("public first-admin setup requires a secret and locks after the first admin
       setupServer.close(resolve);
       setupServer.closeAllConnections();
     });
-    setupApplication.db.close();
-    if (previousToken === undefined) {
-      delete process.env.PTH_ADMIN_SETUP_TOKEN;
-    } else {
-      process.env.PTH_ADMIN_SETUP_TOKEN = previousToken;
-    }
+    setupDb.close();
   }
 });
