@@ -1028,8 +1028,8 @@ async function main() {
     return;
   }
 
-  const host = option("--host", "127.0.0.1");
-  const port = Number(option("--port", "8000"));
+  const host = option("--host", process.env.HOST || "0.0.0.0");
+  const port = Number(option("--port", process.env.PORT || "8000"));
   const certFile = option("--certfile", null);
   const keyFile = option("--keyfile", null);
   if (Boolean(certFile) !== Boolean(keyFile)) {
