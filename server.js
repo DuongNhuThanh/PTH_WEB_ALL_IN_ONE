@@ -783,6 +783,61 @@ function updateUserApproval(db, request, response, userId, payload) {
   sendJson(response, 200, { ok: true });
 }
 
+function isFirstAdminMissing(db) {
+  return db
+    .prepare("SELECT COUNT(*) AS count FROM users WHERE is_admin = 1")
+    .get().count === 0;
+}
+
+function matchesSetupToken(expectedToken, providedToken) {
+  if (typeof providedToken !== "string") return false;
+  const expected = Buffer.from(expectedToken, "utf8");
+  const provided = Buffer.from(providedToken, "utf8");
+  return expected.length === provided.length &&
+    crypto.timingSafeEqual(expected, provided);
+}
+
+async function setupFirstAdmin(db, payload) {
+  if (!isFirstAdminMissing(db)) {
+    throw new APIError(409, "Hệ thống đã có quản trị viên.");
+  }
+  const setupToken = process.env.PTH_ADMIN_SETUP_TOKEN;
+  if (!setupToken || Buffer.byteLength(setupToken, "utf8") < 32) {
+    throw new APIError(503, "Chưa cấu hình mã khởi tạo quản trị viên an toàn.");
+  }
+  if (!matchesSetupToken(setupToken, payload?.setupToken)) {
+    throw new APIError(403, "Mã khởi tạo quản trị viên không hợp lệ.");
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new APIError(400, "Thông tin quản trị viên không hợp lệ.");
+  }
+  const email = validateEmail(payload.email);
+  const password = validatePassword(payload.password);
+  const salt = crypto.randomBytes(16);
+  const hash = await passwordDigest(password, salt);
+  try {
+    transaction(
+      db,
+      () => {
+        if (!isFirstAdminMissing(db)) {
+          throw new APIError(409, "Hệ thống đã có quản trị viên.");
+        }
+        db.prepare(
+          `INSERT INTO users
+           (email, password_hash, password_salt, is_admin, approved, created_at)
+           VALUES (?, ?, ?, 1, 1, ?)`,
+        ).run(email, hash, salt.toString("hex"), nowMs());
+      },
+      true,
+    );
+  } catch (error) {
+    if (error.errcode === 2067 || error.errcode === 1555) {
+      throw new APIError(409, "Email này đã có tài khoản.");
+    }
+    throw error;
+  }
+}
+
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -868,6 +923,11 @@ function createHandler(db) {
         const payload = await readJson(request);
         if (url.pathname === "/api/register") {
           await handleRegister(db, response, payload);
+        } else if (url.pathname === "/api/setup-admin") {
+          await setupFirstAdmin(db, payload);
+          sendJson(response, 201, {
+            message: "Đã tạo quản trị viên đầu tiên. Hãy xóa PTH_ADMIN_SETUP_TOKEN khỏi môi trường triển khai.",
+          });
         } else if (url.pathname === "/api/login") {
           await handleLogin(db, request, response, payload);
         } else if (url.pathname === "/api/logout") {

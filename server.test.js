@@ -313,3 +313,76 @@ test("first-admin creation requires matching passwords and allows only one admin
   );
   firstAdminDb.close();
 });
+
+test("public first-admin setup requires a secret and locks after the first admin", async () => {
+  const dbPath = path.join(tempDir, "public-setup.sqlite3");
+  const setupApplication = createApplication({ dbPath });
+  const setupServer = setupApplication.server;
+  const previousToken = process.env.PTH_ADMIN_SETUP_TOKEN;
+  process.env.PTH_ADMIN_SETUP_TOKEN = "test-only-random-secret-token-123456";
+  await new Promise((resolve) => setupServer.listen(0, "127.0.0.1", resolve));
+  const setupUrl = `http://127.0.0.1:${setupServer.address().port}`;
+  try {
+    const invalid = await fetch(`${setupUrl}/api/setup-admin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        setupToken: "wrong",
+        email: "setup-admin@example.com",
+        password: ADMIN_PASSWORD,
+      }),
+    });
+    assert.equal(invalid.status, 403);
+
+    const created = await fetch(`${setupUrl}/api/setup-admin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        setupToken: process.env.PTH_ADMIN_SETUP_TOKEN,
+        email: "setup-admin@example.com",
+        password: ADMIN_PASSWORD,
+      }),
+    });
+    assert.equal(created.status, 201);
+
+    const locked = await fetch(`${setupUrl}/api/setup-admin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        setupToken: process.env.PTH_ADMIN_SETUP_TOKEN,
+        email: "another-admin@example.com",
+        password: ADMIN_PASSWORD,
+      }),
+    });
+    assert.equal(locked.status, 409);
+
+    const userRegistration = await fetch(`${setupUrl}/api/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "regular-user@example.com",
+        password: USER_PASSWORD,
+      }),
+    });
+    assert.equal(userRegistration.status, 201);
+    const accounts = setupApplication.db
+      .prepare("SELECT email, is_admin, approved FROM users ORDER BY id")
+      .all()
+      .map((row) => ({ ...row }));
+    assert.deepEqual(accounts, [
+      { email: "setup-admin@example.com", is_admin: 1, approved: 1 },
+      { email: "regular-user@example.com", is_admin: 0, approved: 0 },
+    ]);
+  } finally {
+    await new Promise((resolve) => {
+      setupServer.close(resolve);
+      setupServer.closeAllConnections();
+    });
+    setupApplication.db.close();
+    if (previousToken === undefined) {
+      delete process.env.PTH_ADMIN_SETUP_TOKEN;
+    } else {
+      process.env.PTH_ADMIN_SETUP_TOKEN = previousToken;
+    }
+  }
+});
